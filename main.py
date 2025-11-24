@@ -8,6 +8,7 @@ import argparse
 import sys
 import time
 from datetime import datetime
+import math
 
 import yaml
 from coinbase.rest import RESTClient
@@ -36,6 +37,7 @@ class TrailingStopTrader:
         self.initial_price = None
         self.trailing_order_id = None
         self.quote_increment = None  # Will be fetched from product info
+        self.base_increment = None   # Will be fetched from product info
 
         print("=" * 80)
         print("COINBASE TRAILING STOP-LOSS TRADER")
@@ -90,6 +92,11 @@ class TrailingStopTrader:
             if self.quote_increment is None and hasattr(response, "quote_increment"):
                 self.quote_increment = float(response.quote_increment)
                 print(f"✓ Detected price increment: ${self.quote_increment}")
+
+            # Get base_increment if not already fetched
+            if self.base_increment is None and hasattr(response, "base_increment"):
+                self.base_increment = float(response.base_increment)
+                print(f"✓ Detected base increment: {self.base_increment}")
 
             return price
         except Exception as e:
@@ -152,8 +159,9 @@ class TrailingStopTrader:
             stop_price_str = f"{stop_price_rounded:.{decimal_places}f}"
 
             # Round base_size to the product's base_increment
-            base_inc = getattr(self, "base_increment", None) or 1.0
-            balance_rounded = round(balance / base_inc) * base_inc
+            base_inc = self.base_increment if self.base_increment else 1.0
+            # Use floor to ensure we don't exceed available balance
+            balance_rounded = math.floor(balance / base_inc) * base_inc
 
             # Format base_size with appropriate decimal places
             if base_inc >= 1.0:
@@ -294,6 +302,14 @@ class TrailingStopTrader:
                 else:
                     self.quote_increment = 0.01  # Default to 2 decimals
                     print(f"⚠ Could not detect price increment, defaulting to $0.01")
+
+                # Get base_increment for size precision
+                if hasattr(response, "base_increment"):
+                    self.base_increment = float(response.base_increment)
+                    print(f"✓ Detected base increment: {self.base_increment}")
+                else:
+                    self.base_increment = 1.0
+                    print(f"⚠ Could not detect base increment, defaulting to 1.0")
 
                 # If we got a price, the market is live!
                 # Calculate trailing stop based on opening price
