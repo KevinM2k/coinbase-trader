@@ -166,22 +166,22 @@ class TrailingStopTrader:
             )
 
             # Extract order_id from response
-            if hasattr(order, "success_response") and hasattr(
-                order.success_response, "order_id"
-            ):
-                order_id = order.success_response.order_id
-                print(f"\n✓ Placed {order_type} stop-loss order on Coinbase")
-                print(f"  Order ID: {order_id}")
-                print(f"  Stop Price: ${stop_price_rounded:.2f}")
-                print(f"  Limit Price: ${limit_price_rounded:.2f}")
-                print(f"  Size: {base_size} {self.product_id.split('-')[0]}")
-                return order_id
-            else:
-                print(f"ERROR: Failed to place order")
-                print(
-                    f"Response: {order.to_dict() if hasattr(order, 'to_dict') else order}"
-                )
-                return None
+            # Convert to dict to access nested fields
+            order_dict = order.to_dict() if hasattr(order, "to_dict") else order
+
+            if order_dict.get("success") and "success_response" in order_dict:
+                order_id = order_dict["success_response"].get("order_id")
+                if order_id:
+                    print(f"\n✓ Placed {order_type} stop-loss order on Coinbase")
+                    print(f"  Order ID: {order_id}")
+                    print(f"  Stop Price: ${stop_price_rounded:.2f}")
+                    print(f"  Limit Price: ${limit_price_rounded:.2f}")
+                    print(f"  Size: {base_size} {self.product_id.split('-')[0]}")
+                    return order_id
+
+            print(f"ERROR: Failed to place order")
+            print(f"Response: {order_dict}")
+            return None
 
         except Exception as e:
             print(f"ERROR: Failed to place stop-loss order: {e}")
