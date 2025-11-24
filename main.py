@@ -34,6 +34,7 @@ class TrailingStopTrader:
         self.highest_price_since_last_update = 0.0
         self.initial_price = None
         self.trailing_order_id = None
+        self.quote_increment = None  # Will be fetched from product info
 
         print("=" * 80)
         print("COINBASE TRAILING STOP-LOSS TRADER")
