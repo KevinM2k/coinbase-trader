@@ -1,0 +1,20 @@
+# Test Configuration - Uses BTC-USD which is always available
+api:
+  key_name: "organizations/89ab4ec0-ee22-4a84-868c-0311c5ab23f7/apiKeys/a326f14d-b199-4996-8a5d-9d40fa3144af"
+  private_key: "-----BEGIN EC PRIVATE KEY-----\nMHcCAQEEIAJxd6KPkyRCwp4GXPhRUyGA7jn+pCdFGG01M+0gx+W7oAoGCCqGSM49\nAwEHoUQDQgAExHWo6Ge4lqNP40VMESRBUfDxF+we0rLI76jYDDKx7cDiMYifFOm5\nZXGaODg1N6BCztF3gmL3zYpymxfhkakEcA==\n-----END EC PRIVATE KEY-----\n"
+
+trading:
+  product_id: "BTC-USD"  # Using BTC for testing - it's always available
+  dry_run: true  # DRY RUN - no real orders
+  poll_interval: 5
+  
+  # BTC prices are much higher, so adjust accordingly
+  emergency_stop_price: 90000.00  # Example: emergency at $90k
+  
+  trailing_stop:
+    initial_stop_price: 95000.00  # Example: initial stop at $95k
+    threshold_percentage: 5.0
+    trail_percentage: 5.0
+
+logging:
+  verbose: true
