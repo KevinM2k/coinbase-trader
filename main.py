@@ -271,10 +271,6 @@ class TrailingStopTrader:
                         "⚠ Your position is NOT protected! Check Coinbase UI immediately!"
                     )
 
-        # Track highest price
-        if current_price > self.highest_price_since_last_update:
-            self.highest_price_since_last_update = current_price
-
     def format_timestamp(self):
         """Get formatted timestamp"""
         return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
