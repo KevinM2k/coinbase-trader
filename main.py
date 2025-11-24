@@ -225,16 +225,33 @@ class TrailingStopTrader:
             if self.trailing_order_id:
                 print("Canceling old trailing stop order...")
                 self.cancel_order(self.trailing_order_id)
+                # Wait for balance to be released from hold
+                time.sleep(2)
 
             print("Placing new trailing stop order...")
-            self.trailing_order_id = self.place_stop_loss_order(
-                self.current_stop, "trailing"
-            )
 
-            if self.trailing_order_id:
-                print(f"✓ New trailing stop active at ${self.current_stop:.4f}\n")
-            else:
-                print("ERROR: Failed to place new trailing stop order!\n")
+            # Retry up to 3 times if balance is still on hold
+            max_retries = 3
+            for attempt in range(max_retries):
+                self.trailing_order_id = self.place_stop_loss_order(
+                    self.current_stop, "trailing"
+                )
+
+                if self.trailing_order_id:
+                    print(f"✓ New trailing stop active at ${self.current_stop:.4f}\n")
+                    break
+                elif attempt < max_retries - 1:
+                    print(
+                        f"⚠ Balance still on hold, retrying in 2 seconds... (attempt {attempt + 2}/{max_retries})"
+                    )
+                    time.sleep(2)
+                else:
+                    print(
+                        "ERROR: Failed to place new trailing stop order after retries!\n"
+                    )
+                    print(
+                        "⚠ Your position is NOT protected! Check Coinbase UI immediately!"
+                    )
 
         # Track highest price
         if current_price > self.highest_price_since_last_update:
