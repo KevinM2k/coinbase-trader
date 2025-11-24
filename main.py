@@ -81,8 +81,14 @@ class TrailingStopTrader:
     def get_current_price(self):
         """Get current market price for the product"""
         try:
-            ticker = self.client.get_product(self.product_id)
-            price = float(ticker["price"])
+            response = self.client.get_product(self.product_id)
+            price = float(response.price)
+
+            # Get quote_increment if not already fetched
+            if self.quote_increment is None and hasattr(response, "quote_increment"):
+                self.quote_increment = float(response.quote_increment)
+                print(f"✓ Detected price increment: ${self.quote_increment}")
+
             return price
         except Exception as e:
             print(f"ERROR: Failed to get price: {e}")
@@ -91,12 +97,12 @@ class TrailingStopTrader:
     def get_account_balance(self):
         """Get account balance for base currency"""
         try:
-            accounts = self.client.get_accounts()
+            response = self.client.get_accounts()
             base_currency = self.product_id.split("-")[0]
 
-            for account in accounts.get("accounts", []):
-                if account["currency"] == base_currency:
-                    balance = float(account["available_balance"]["value"])
+            for account in response.accounts:
+                if account.currency == base_currency:
+                    balance = float(account.available_balance["value"])
                     return balance
 
             return 0.0
@@ -150,16 +156,22 @@ class TrailingStopTrader:
                 stop_direction="STOP_DIRECTION_STOP_DOWN",
             )
 
-            order_id = order.get("success_response", {}).get("order_id")
-
-            if order_id:
+            # Extract order_id from response
+            if hasattr(order, "success_response") and hasattr(
+                order.success_response, "order_id"
+            ):
+                order_id = order.success_response.order_id
                 print(f"\n✓ Placed {order_type} stop-loss order on Coinbase")
                 print(f"  Order ID: {order_id}")
-                print(f"  Stop Price: ${stop_price:.4f}")
+                print(f"  Stop Price: ${stop_price_rounded:.2f}")
+                print(f"  Limit Price: ${limit_price_rounded:.2f}")
                 print(f"  Size: {base_size} {self.product_id.split('-')[0]}")
                 return order_id
             else:
-                print(f"ERROR: Failed to place order: {order}")
+                print(f"ERROR: Failed to place order")
+                print(
+                    f"Response: {order.to_dict() if hasattr(order, 'to_dict') else order}"
+                )
                 return None
 
         except Exception as e:
