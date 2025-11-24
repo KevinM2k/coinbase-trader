@@ -137,17 +137,34 @@ class TrailingStopTrader:
                 return None
 
             # Round prices to the product's quote_increment
-            # Default to 0.01 if not yet fetched (2 decimal places)
-            increment = self.quote_increment if self.quote_increment else 0.01
+            # Default to 0.00001 if not yet fetched (5 decimal places for MON)
+            increment = self.quote_increment if self.quote_increment else 0.00001
 
             # Round to nearest increment
             stop_price_rounded = round(stop_price / increment) * increment
             limit_price_rounded = round((stop_price * 0.995) / increment) * increment
 
-            # Convert to strings for API
-            limit_price = str(limit_price_rounded)
-            stop_price_str = str(stop_price_rounded)
-            base_size = str(balance)
+            # Format to proper decimal places to avoid floating point errors
+            decimal_places = (
+                5 if increment == 0.00001 else (2 if increment == 0.01 else 4)
+            )
+            limit_price = f"{limit_price_rounded:.{decimal_places}f}"
+            stop_price_str = f"{stop_price_rounded:.{decimal_places}f}"
+
+            # Round base_size to the product's base_increment
+            base_inc = getattr(self, "base_increment", None) or 1.0
+            balance_rounded = round(balance / base_inc) * base_inc
+
+            # Format base_size with appropriate decimal places
+            if base_inc >= 1.0:
+                base_size = str(int(balance_rounded))
+            else:
+                base_decimals = (
+                    len(str(base_inc).rstrip("0").split(".")[-1])
+                    if "." in str(base_inc)
+                    else 0
+                )
+                base_size = f"{balance_rounded:.{base_decimals}f}"
 
             if self.dry_run:
                 print(f"\n[DRY RUN] Would place {order_type} stop-loss order:")
@@ -383,6 +400,17 @@ class TrailingStopTrader:
                 )
                 print(
                     f"  Highest Price Since Last Update: ${self.highest_price_since_last_update:.4f}"
+                )
+
+                # Calculate and show next update trigger
+                next_update_price = self.highest_price_since_last_update * (
+                    1 + self.threshold_pct / 100
+                )
+                pct_to_next_update = (
+                    (next_update_price - current_price) / current_price
+                ) * 100
+                print(
+                    f"  Next Update At: ${next_update_price:.5f} ({pct_to_next_update:+.2f}% from here)"
                 )
 
                 # Check if stops were triggered (orders would be filled/canceled)
