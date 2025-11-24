@@ -114,7 +114,24 @@ If you run the bot before a trading pair is available (e.g., before 2pm launch):
 1. The bot will poll every X seconds waiting for the pair
 2. Once available, it displays the initial price and your settings
 3. You must type `START` to begin trading
-4. The bot then monitors and executes your strategy
+4. The bot places stop-loss orders on Coinbase and begins monitoring
+
+### How Stop-Loss Orders Work
+
+**The bot places REAL stop-loss orders on Coinbase:**
+- **Emergency Stop**: Placed once at startup, never changes
+- **Trailing Stop**: Updated as price rises to lock in profits
+
+**Key Benefits:**
+- ✓ Orders are visible in Coinbase UI
+- ✓ Orders execute even if bot crashes or internet drops
+- ✓ No need to keep bot running 24/7 for protection
+- ✓ Can manually manage orders in Coinbase if needed
+
+**When price increases by your threshold (e.g., 3%):**
+1. Bot cancels old trailing stop order
+2. Bot places new trailing stop order at higher price
+3. You're protected with updated stops on Coinbase
 
 ### During Trading
 
@@ -128,21 +145,36 @@ The bot displays:
   Highest Price Since Last Update: $0.0285
 ```
 
+When the trailing stop updates, you'll see:
+```
+>>> STOP-LOSS UPDATE TRIGGERED! Price increased by 5.12%
+>>> Old Stop: $0.0271 -> New Stop: $0.0285
+>>> Stop raised by $0.0014
+
+✓ New trailing stop active at $0.0285
+```
+
 ### Stop the Bot
 
-Press `Ctrl+C` to stop the bot safely. It will display the final price and stop level.
+Press `Ctrl+C` to stop the bot safely. 
+
+**Important:** Your stop-loss orders remain active on Coinbase even after the bot stops! You can:
+- Let them stay active for continued protection
+- Cancel them manually in Coinbase UI if you want to remove protection
 
 ## Dry Run vs Live Trading
 
 ### Dry Run Mode (`dry_run: true`)
 - Monitors real prices
-- Simulates sell orders (doesn't execute them)
+- Simulates placing orders (doesn't actually create them on Coinbase)
 - Perfect for testing your configuration
 - No risk to your funds
+- No orders visible in Coinbase UI
 
 ### Live Trading Mode (`dry_run: false`)
-- Executes real market sell orders
-- Uses your actual Coinbase balance
+- Places real stop-loss orders on Coinbase
+- Orders are visible in Coinbase UI
+- Orders will execute and sell your coins when triggered
 - **USE WITH CAUTION**
 
 **Always test with dry run first!**

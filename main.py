@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Coinbase Trailing Stop-Loss Trader
-Monitors a trading pair and executes trailing stop-loss strategy
+Places and manages stop-loss orders on Coinbase exchange
 """
 
 import argparse
@@ -34,6 +34,8 @@ class TrailingStopTrader:
         # State tracking
         self.highest_price_since_last_update = 0.0
         self.initial_price = None
+        self.emergency_order_id = None
+        self.trailing_order_id = None
 
         print("=" * 80)
         print("COINBASE TRAILING STOP-LOSS TRADER")
@@ -90,76 +92,100 @@ class TrailingStopTrader:
             return None
 
     def get_account_balance(self):
-        """Get account balances"""
+        """Get account balance for base currency"""
         try:
             accounts = self.client.get_accounts()
-            return accounts
-        except Exception as e:
-            print(f"ERROR: Failed to get account balance: {e}")
-            return None
-
-    def execute_market_sell(self, reason):
-        """Execute market sell order"""
-        print("\n" + "!" * 80)
-        print(f"{'[DRY RUN] ' if self.dry_run else ''}EXECUTING MARKET SELL: {reason}")
-        print("!" * 80)
-
-        if self.dry_run:
-            # Simulate selling in dry run mode
             base_currency = self.product_id.split("-")[0]
-            print(f"[DRY RUN] Would sell all {base_currency} at current market price")
-            print(f"[DRY RUN] No real order placed - this is a simulation")
-            print("!" * 80)
-            return True
-
-        try:
-            # Get available balance to sell
-            accounts = self.get_account_balance()
-            if not accounts:
-                print("ERROR: Could not retrieve account balance")
-                return False
-
-            # Find the base currency balance (e.g., MON from MON-USDC)
-            base_currency = self.product_id.split("-")[0]
-            balance = 0
 
             for account in accounts.get("accounts", []):
                 if account["currency"] == base_currency:
                     balance = float(account["available_balance"]["value"])
-                    break
+                    return balance
 
-            if balance <= 0:
-                print(f"No {base_currency} balance to sell")
-                return False
+            return 0.0
+        except Exception as e:
+            print(f"ERROR: Failed to get account balance: {e}")
+            return 0.0
 
-            print(f"Selling {balance} {base_currency}")
-
-            # Place market sell order
-            order = self.client.market_order_sell(
-                client_order_id=f"stop-loss-{int(time.time())}",
-                product_id=self.product_id,
-                base_size=str(balance),
-            )
-
-            print(f"Order placed: {order}")
-            print("!" * 80)
+    def cancel_order(self, order_id):
+        """Cancel an existing order"""
+        if self.dry_run:
+            print(f"[DRY RUN] Would cancel order: {order_id}")
             return True
 
+        try:
+            result = self.client.cancel_orders([order_id])
+            print(f"✓ Cancelled order: {order_id}")
+            return True
         except Exception as e:
-            print(f"ERROR: Failed to execute sell order: {e}")
+            print(f"ERROR: Failed to cancel order {order_id}: {e}")
             return False
 
+    def place_stop_loss_order(self, stop_price, order_type="trailing"):
+        """Place a stop-loss sell order on Coinbase"""
+        try:
+            balance = self.get_account_balance()
+
+            if balance <= 0:
+                base_currency = self.product_id.split("-")[0]
+                print(f"ERROR: No {base_currency} balance available to protect")
+                return None
+
+            # Use stop price as both trigger and limit (small buffer for execution)
+            limit_price = str(stop_price * 0.995)  # 0.5% below stop for safety
+            stop_price_str = str(stop_price)
+            base_size = str(balance)
+
+            if self.dry_run:
+                print(f"\n[DRY RUN] Would place {order_type} stop-loss order:")
+                print(f"  Stop Price: ${stop_price:.4f}")
+                print(f"  Limit Price: ${float(limit_price):.4f}")
+                print(f"  Size: {base_size} {self.product_id.split('-')[0]}")
+                return f"dry_run_{order_type}_{int(time.time())}"
+
+            # Place stop-limit order (GTC - Good 'Til Canceled)
+            order = self.client.stop_limit_order_gtc_sell(
+                client_order_id=f"{order_type}_stop_{int(time.time())}",
+                product_id=self.product_id,
+                base_size=base_size,
+                limit_price=limit_price,
+                stop_price=stop_price_str,
+                stop_direction="STOP_DIRECTION_STOP_DOWN",
+            )
+
+            order_id = order.get("success_response", {}).get("order_id")
+
+            if order_id:
+                print(f"\n✓ Placed {order_type} stop-loss order on Coinbase")
+                print(f"  Order ID: {order_id}")
+                print(f"  Stop Price: ${stop_price:.4f}")
+                print(f"  Size: {base_size} {self.product_id.split('-')[0]}")
+                return order_id
+            else:
+                print(f"ERROR: Failed to place order: {order}")
+                return None
+
+        except Exception as e:
+            print(f"ERROR: Failed to place stop-loss order: {e}")
+            import traceback
+
+            traceback.print_exc()
+            return None
+
     def update_trailing_stop(self, current_price):
-        """Update the trailing stop-loss based on price movement"""
+        """Update the trailing stop-loss order based on price movement"""
         # Calculate new stop based on current price
         new_stop = current_price * (1 - self.trail_pct / 100)
 
         # Calculate how much price has increased since last stop update
-        price_increase_pct = (
-            (current_price - self.highest_price_since_last_update)
-            / self.highest_price_since_last_update
-            * 100
-        )
+        if self.highest_price_since_last_update > 0:
+            price_increase_pct = (
+                (current_price - self.highest_price_since_last_update)
+                / self.highest_price_since_last_update
+                * 100
+            )
+        else:
+            price_increase_pct = 0
 
         # Update stop if price increased by threshold percentage
         if price_increase_pct >= self.threshold_pct:
@@ -167,13 +193,30 @@ class TrailingStopTrader:
             self.current_stop = new_stop
             self.highest_price_since_last_update = current_price
 
+            print(f"\n{'=' * 80}")
             print(
-                f"\n>>> STOP-LOSS UPDATED! Price increased by {price_increase_pct:.2f}%"
+                f">>> STOP-LOSS UPDATE TRIGGERED! Price increased by {price_increase_pct:.2f}%"
             )
             print(
                 f">>> Old Stop: ${old_stop:.4f} -> New Stop: ${self.current_stop:.4f}"
             )
-            print(f">>> Stop raised by ${self.current_stop - old_stop:.4f}\n")
+            print(f">>> Stop raised by ${self.current_stop - old_stop:.4f}")
+            print(f"{'=' * 80}\n")
+
+            # Cancel old trailing stop and place new one
+            if self.trailing_order_id:
+                print("Canceling old trailing stop order...")
+                self.cancel_order(self.trailing_order_id)
+
+            print("Placing new trailing stop order...")
+            self.trailing_order_id = self.place_stop_loss_order(
+                self.current_stop, "trailing"
+            )
+
+            if self.trailing_order_id:
+                print(f"✓ New trailing stop active at ${self.current_stop:.4f}\n")
+            else:
+                print("ERROR: Failed to place new trailing stop order!\n")
 
         # Track highest price
         if current_price > self.highest_price_since_last_update:
@@ -232,6 +275,41 @@ class TrailingStopTrader:
         self.initial_price = initial_price
         self.highest_price_since_last_update = initial_price
 
+        # Place initial stop-loss orders
+        print("\n" + "=" * 80)
+        print("PLACING INITIAL STOP-LOSS ORDERS ON COINBASE")
+        print("=" * 80)
+
+        # Place emergency stop
+        print(f"\n1. Placing Emergency Stop-Loss at ${self.emergency_stop:.4f}...")
+        self.emergency_order_id = self.place_stop_loss_order(
+            self.emergency_stop, "emergency"
+        )
+
+        if not self.emergency_order_id:
+            print("\nERROR: Failed to place emergency stop! Exiting for safety.")
+            sys.exit(1)
+
+        # Place initial trailing stop
+        print(f"\n2. Placing Initial Trailing Stop-Loss at ${self.current_stop:.4f}...")
+        self.trailing_order_id = self.place_stop_loss_order(
+            self.current_stop, "trailing"
+        )
+
+        if not self.trailing_order_id:
+            print("\nERROR: Failed to place trailing stop! Exiting for safety.")
+            if self.emergency_order_id:
+                print("Cleaning up emergency stop...")
+                self.cancel_order(self.emergency_order_id)
+            sys.exit(1)
+
+        print("\n" + "=" * 80)
+        print("✓ ALL STOP-LOSS ORDERS ACTIVE ON COINBASE")
+        print("=" * 80)
+        print("\nYour stop-loss orders are now visible in the Coinbase UI.")
+        print("They will execute automatically even if this bot stops running.")
+        print("\nMonitoring price to update trailing stop as market rises...\n")
+
         try:
             iteration = 0
             while True:
@@ -263,23 +341,8 @@ class TrailingStopTrader:
                     f"  Highest Price Since Last Update: ${self.highest_price_since_last_update:.4f}"
                 )
 
-                # Check emergency stop-loss
-                if current_price <= self.emergency_stop:
-                    print(
-                        f"\n*** EMERGENCY STOP TRIGGERED! Price ${current_price:.4f} <= ${self.emergency_stop:.4f} ***"
-                    )
-                    if self.execute_market_sell("Emergency stop-loss triggered"):
-                        print("\nTrading stopped. Emergency exit completed.")
-                        break
-
-                # Check trailing stop-loss
-                if current_price <= self.current_stop:
-                    print(
-                        f"\n*** TRAILING STOP TRIGGERED! Price ${current_price:.4f} <= ${self.current_stop:.4f} ***"
-                    )
-                    if self.execute_market_sell("Trailing stop-loss triggered"):
-                        print("\nTrading stopped. Trailing stop exit completed.")
-                        break
+                # Check if stops were triggered (orders would be filled/canceled)
+                # In a production system, you'd check order status here
 
                 # Update trailing stop if price increased enough
                 self.update_trailing_stop(current_price)
@@ -293,11 +356,17 @@ class TrailingStopTrader:
             print("\n\nTrading stopped by user (Ctrl+C)")
             print(f"Final Price: ${current_price:.4f}")
             print(f"Final Trailing Stop: ${self.current_stop:.4f}")
+            print("\n⚠️  STOP-LOSS ORDERS ARE STILL ACTIVE ON COINBASE")
+            print(
+                "Go to Coinbase UI to cancel them if you want to disable protection.\n"
+            )
         except Exception as e:
             print(f"\n\nERROR: Unexpected error in trading loop: {e}")
             import traceback
 
             traceback.print_exc()
+            print("\n⚠️  STOP-LOSS ORDERS MAY STILL BE ACTIVE ON COINBASE")
+            print("Check Coinbase UI and cancel manually if needed.\n")
 
 
 def main():
