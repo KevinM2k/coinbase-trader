@@ -8,8 +8,8 @@ trading:
   dry_run: true  # DRY RUN - no real orders
   poll_interval: 5
   
-  # BTC prices are much higher, so adjust accordingly
-  emergency_stop_price: 90000.00  # Example: emergency at $90k
+  # Emergency stop percentage below opening price
+  emergency_stop_percentage: 20.0
   
   trailing_stop:
     threshold_percentage: 3.0

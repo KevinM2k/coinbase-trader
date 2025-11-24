@@ -18,9 +18,10 @@ trading:
   # How often to poll the price (in seconds)
   poll_interval: 5
 
-  # Emergency stop-loss: if price drops below this, SELL IMMEDIATELY
-  # This is your absolute floor - the bot will sell if price hits this
-  emergency_stop_price: 0.50
+  # Emergency stop-loss percentage below opening price
+  # Example: 20.0 means emergency stop is 20% below opening price
+  # If opens at $0.035, emergency stop will be $0.028 (20% below)
+  emergency_stop_percentage: 20.0
 
   # Trailing stop-loss configuration
   trailing_stop:

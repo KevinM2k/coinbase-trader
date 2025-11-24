@@ -75,24 +75,30 @@ trading:
   product_id: "MON-USDC"
   poll_interval: 5  # Check price every 5 seconds
   
-  emergency_stop_price: 0.020  # Absolute floor - sell if price hits this
+  emergency_stop_percentage: 20.0  # Emergency stop is 20% below opening price
   
   trailing_stop:
     threshold_percentage: 3.0  # Price must increase 3% to update stop
-    trail_percentage: 10.0  # Keep stop 10% below current price
+    trail_percentage: 15.0  # Keep stop 15% below current price
 ```
 
-**Note:** The `initial_stop_price` is no longer needed - it's auto-calculated as `opening_price * (1 - trail_percentage / 100)`.
+**Note:** Both stops are auto-calculated from opening price:
+- Emergency stop: `opening_price * (1 - emergency_stop_percentage / 100)`
+- Initial trailing stop: `opening_price * (1 - trail_percentage / 100)`
 
 ### Example Configuration
 
 If MON opens at $0.035:
-- **Emergency Stop**: $0.020 (protects against crash)
-- **Initial Trailing Stop**: Auto-calculated at $0.0315 (10% below $0.035)
+- **Emergency Stop**: Auto-calculated at $0.028 (20% below $0.035)
+- **Initial Trailing Stop**: Auto-calculated at $0.02975 (15% below $0.035)
 - **Threshold**: 3% (updates stop when price gains 3%)
-- **Trail**: 10% (keeps stop 10% below current price)
+- **Trail**: 15% (keeps stop 15% below current price)
 
-**Note:** The initial trailing stop is automatically calculated based on the opening price and your trail percentage. You don't need to set it manually!
+If MON opens at $0.019:
+- **Emergency Stop**: Auto-calculated at $0.0152 (20% below $0.019)
+- **Initial Trailing Stop**: Auto-calculated at $0.01615 (15% below $0.019)
+
+**Note:** Both stops automatically adjust to the opening price - works for any launch price!
 
 ## Usage
 

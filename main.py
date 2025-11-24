@@ -22,7 +22,9 @@ class TrailingStopTrader:
         # Trading parameters
         self.product_id = self.config["trading"]["product_id"]
         self.poll_interval = self.config["trading"]["poll_interval"]
-        self.emergency_stop = float(self.config["trading"]["emergency_stop_price"])
+        self.emergency_stop_pct = float(
+            self.config["trading"]["emergency_stop_percentage"]
+        )
         self.dry_run = self.config["trading"].get("dry_run", False)
 
         # Trailing stop parameters
@@ -30,7 +32,8 @@ class TrailingStopTrader:
         self.threshold_pct = float(trailing["threshold_percentage"])
         self.trail_pct = float(trailing["trail_percentage"])
 
-        # State tracking (initial stop calculated from opening price)
+        # State tracking (calculated from opening price)
+        self.emergency_stop = None  # Will be set based on opening price
         self.current_stop = None  # Will be set based on opening price
         self.highest_price_since_last_update = 0.0
         self.initial_price = None
@@ -41,7 +44,9 @@ class TrailingStopTrader:
         print("COINBASE TRAILING STOP-LOSS TRADER")
         print("=" * 80)
         print(f"Product: {self.product_id}")
-        print(f"Emergency Stop: ${self.emergency_stop:.4f}")
+        print(
+            f"Emergency Stop: Auto-calculated ({self.emergency_stop_pct}% below opening price)"
+        )
         print(
             f"Initial Trailing Stop: Auto-calculated ({self.trail_pct}% below opening price)"
         )
@@ -241,16 +246,19 @@ class TrailingStopTrader:
                 price = float(ticker["price"])
 
                 # If we got a price, the market is live!
-                # Calculate initial trailing stop based on opening price
-                calculated_stop = price * (1 - self.trail_pct / 100)
+                # Calculate stops based on opening price
+                calculated_emergency = price * (1 - self.emergency_stop_pct / 100)
+                calculated_trailing = price * (1 - self.trail_pct / 100)
 
                 print("\n" + "=" * 80)
                 print(f"🚀 {self.product_id} IS NOW LIVE!")
                 print("=" * 80)
                 print(f"Opening Price: ${price:.4f}")
-                print(f"Emergency Stop: ${self.emergency_stop:.4f}")
                 print(
-                    f"Initial Trailing Stop: ${calculated_stop:.4f} ({self.trail_pct}% below opening)"
+                    f"Emergency Stop: ${calculated_emergency:.4f} ({self.emergency_stop_pct}% below opening)"
+                )
+                print(
+                    f"Initial Trailing Stop: ${calculated_trailing:.4f} ({self.trail_pct}% below opening)"
                 )
                 print(f"Threshold for Updates: {self.threshold_pct}%")
                 print(f"Mode: {'DRY RUN' if self.dry_run else 'LIVE TRADING'}")
@@ -262,7 +270,10 @@ class TrailingStopTrader:
 
                 if response == "START":
                     print("\n✓ Starting trading bot...\n")
-                    self.current_stop = calculated_stop  # Set the initial stop
+                    self.emergency_stop = calculated_emergency  # Set the emergency stop
+                    self.current_stop = (
+                        calculated_trailing  # Set the initial trailing stop
+                    )
                     return price
                 else:
                     print("\nTrading cancelled by user.")
