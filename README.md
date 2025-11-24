@@ -78,18 +78,21 @@ trading:
   emergency_stop_price: 0.020  # Absolute floor - sell if price hits this
   
   trailing_stop:
-    initial_stop_price: 0.022  # Starting trailing stop
-    threshold_percentage: 5.0  # Price must increase 5% to update stop
-    trail_percentage: 5.0  # Keep stop 5% below current price
+    threshold_percentage: 3.0  # Price must increase 3% to update stop
+    trail_percentage: 10.0  # Keep stop 10% below current price
 ```
+
+**Note:** The `initial_stop_price` is no longer needed - it's auto-calculated as `opening_price * (1 - trail_percentage / 100)`.
 
 ### Example Configuration
 
-If you bought MON at $0.025:
-- **Emergency Stop**: $0.020 (max loss: $0.005 per coin)
-- **Initial Trailing Stop**: $0.022 (buffer for volatility)
-- **Threshold**: 5% (updates stop when price gains 5%)
-- **Trail**: 5% (keeps stop 5% below peak price)
+If MON opens at $0.035:
+- **Emergency Stop**: $0.020 (protects against crash)
+- **Initial Trailing Stop**: Auto-calculated at $0.0315 (10% below $0.035)
+- **Threshold**: 3% (updates stop when price gains 3%)
+- **Trail**: 10% (keeps stop 10% below current price)
+
+**Note:** The initial trailing stop is automatically calculated based on the opening price and your trail percentage. You don't need to set it manually!
 
 ## Usage
 

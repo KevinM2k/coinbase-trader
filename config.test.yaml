@@ -12,9 +12,8 @@ trading:
   emergency_stop_price: 90000.00  # Example: emergency at $90k
   
   trailing_stop:
-    initial_stop_price: 95000.00  # Example: initial stop at $95k
-    threshold_percentage: 5.0
-    trail_percentage: 5.0
+    threshold_percentage: 3.0
+    trail_percentage: 10.0
 
 logging:
   verbose: true
