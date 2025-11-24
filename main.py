@@ -22,9 +22,6 @@ class TrailingStopTrader:
         # Trading parameters
         self.product_id = self.config["trading"]["product_id"]
         self.poll_interval = self.config["trading"]["poll_interval"]
-        self.emergency_stop_pct = float(
-            self.config["trading"]["emergency_stop_percentage"]
-        )
         self.dry_run = self.config["trading"].get("dry_run", False)
 
         # Trailing stop parameters
@@ -33,23 +30,16 @@ class TrailingStopTrader:
         self.trail_pct = float(trailing["trail_percentage"])
 
         # State tracking (calculated from opening price)
-        self.emergency_stop = None  # Will be set based on opening price
         self.current_stop = None  # Will be set based on opening price
         self.highest_price_since_last_update = 0.0
         self.initial_price = None
-        self.emergency_order_id = None
         self.trailing_order_id = None
 
         print("=" * 80)
         print("COINBASE TRAILING STOP-LOSS TRADER")
         print("=" * 80)
         print(f"Product: {self.product_id}")
-        print(
-            f"Emergency Stop: Auto-calculated ({self.emergency_stop_pct}% below opening price)"
-        )
-        print(
-            f"Initial Trailing Stop: Auto-calculated ({self.trail_pct}% below opening price)"
-        )
+        print(f"Trailing Stop: Auto-calculated ({self.trail_pct}% below opening price)")
         print(f"Threshold for Stop Update: {self.threshold_pct}%")
         print(f"Trail Distance: {self.trail_pct}%")
         print(f"Poll Interval: {self.poll_interval}s")
@@ -246,8 +236,7 @@ class TrailingStopTrader:
                 price = float(ticker["price"])
 
                 # If we got a price, the market is live!
-                # Calculate stops based on opening price
-                calculated_emergency = price * (1 - self.emergency_stop_pct / 100)
+                # Calculate trailing stop based on opening price
                 calculated_trailing = price * (1 - self.trail_pct / 100)
 
                 print("\n" + "=" * 80)
@@ -255,10 +244,7 @@ class TrailingStopTrader:
                 print("=" * 80)
                 print(f"Opening Price: ${price:.4f}")
                 print(
-                    f"Emergency Stop: ${calculated_emergency:.4f} ({self.emergency_stop_pct}% below opening)"
-                )
-                print(
-                    f"Initial Trailing Stop: ${calculated_trailing:.4f} ({self.trail_pct}% below opening)"
+                    f"Trailing Stop: ${calculated_trailing:.4f} ({self.trail_pct}% below opening)"
                 )
                 print(f"Threshold for Updates: {self.threshold_pct}%")
                 print(f"Mode: {'DRY RUN' if self.dry_run else 'LIVE TRADING'}")
@@ -270,7 +256,6 @@ class TrailingStopTrader:
 
                 if response == "START":
                     print("\n✓ Starting trading bot...\n")
-                    self.emergency_stop = calculated_emergency  # Set the emergency stop
                     self.current_stop = (
                         calculated_trailing  # Set the initial trailing stop
                     )
@@ -295,39 +280,25 @@ class TrailingStopTrader:
         self.initial_price = initial_price
         self.highest_price_since_last_update = initial_price
 
-        # Place initial stop-loss orders
+        # Place initial trailing stop order
         print("\n" + "=" * 80)
-        print("PLACING INITIAL STOP-LOSS ORDERS ON COINBASE")
+        print("PLACING TRAILING STOP-LOSS ORDER ON COINBASE")
         print("=" * 80)
 
-        # Place emergency stop
-        print(f"\n1. Placing Emergency Stop-Loss at ${self.emergency_stop:.4f}...")
-        self.emergency_order_id = self.place_stop_loss_order(
-            self.emergency_stop, "emergency"
-        )
-
-        if not self.emergency_order_id:
-            print("\nERROR: Failed to place emergency stop! Exiting for safety.")
-            sys.exit(1)
-
-        # Place initial trailing stop
-        print(f"\n2. Placing Initial Trailing Stop-Loss at ${self.current_stop:.4f}...")
+        print(f"\nPlacing Trailing Stop-Loss at ${self.current_stop:.4f}...")
         self.trailing_order_id = self.place_stop_loss_order(
             self.current_stop, "trailing"
         )
 
         if not self.trailing_order_id:
             print("\nERROR: Failed to place trailing stop! Exiting for safety.")
-            if self.emergency_order_id:
-                print("Cleaning up emergency stop...")
-                self.cancel_order(self.emergency_order_id)
             sys.exit(1)
 
         print("\n" + "=" * 80)
-        print("✓ ALL STOP-LOSS ORDERS ACTIVE ON COINBASE")
+        print("✓ TRAILING STOP-LOSS ORDER ACTIVE ON COINBASE")
         print("=" * 80)
-        print("\nYour stop-loss orders are now visible in the Coinbase UI.")
-        print("They will execute automatically even if this bot stops running.")
+        print("\nYour stop-loss order is now visible in the Coinbase UI.")
+        print("It will execute automatically even if this bot stops running.")
         print("\nMonitoring price to update trailing stop as market rises...\n")
 
         try:
@@ -353,9 +324,8 @@ class TrailingStopTrader:
                     f"  Current Price: ${current_price:.4f} ({price_change_pct:+.2f}%)"
                 )
                 print(f"  Trailing Stop: ${self.current_stop:.4f}")
-                print(f"  Emergency Stop: ${self.emergency_stop:.4f}")
                 print(
-                    f"  Distance to Trailing Stop: ${current_price - self.current_stop:.4f} ({((current_price - self.current_stop) / current_price * 100):.2f}%)"
+                    f"  Distance to Stop: ${current_price - self.current_stop:.4f} ({((current_price - self.current_stop) / current_price * 100):.2f}%)"
                 )
                 print(
                     f"  Highest Price Since Last Update: ${self.highest_price_since_last_update:.4f}"
@@ -376,16 +346,14 @@ class TrailingStopTrader:
             print("\n\nTrading stopped by user (Ctrl+C)")
             print(f"Final Price: ${current_price:.4f}")
             print(f"Final Trailing Stop: ${self.current_stop:.4f}")
-            print("\n⚠️  STOP-LOSS ORDERS ARE STILL ACTIVE ON COINBASE")
-            print(
-                "Go to Coinbase UI to cancel them if you want to disable protection.\n"
-            )
+            print("\n⚠️  STOP-LOSS ORDER IS STILL ACTIVE ON COINBASE")
+            print("Go to Coinbase UI to cancel it if you want to disable protection.\n")
         except Exception as e:
             print(f"\n\nERROR: Unexpected error in trading loop: {e}")
             import traceback
 
             traceback.print_exc()
-            print("\n⚠️  STOP-LOSS ORDERS MAY STILL BE ACTIVE ON COINBASE")
+            print("\n⚠️  STOP-LOSS ORDER MAY STILL BE ACTIVE ON COINBASE")
             print("Check Coinbase UI and cancel manually if needed.\n")
 
 

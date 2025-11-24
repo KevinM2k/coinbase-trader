@@ -18,11 +18,6 @@ trading:
   # How often to poll the price (in seconds)
   poll_interval: 5
 
-  # Emergency stop-loss percentage below opening price
-  # Example: 20.0 means emergency stop is 20% below opening price
-  # If opens at $0.035, emergency stop will be $0.028 (20% below)
-  emergency_stop_percentage: 20.0
-
   # Trailing stop-loss configuration
   trailing_stop:
     # Percentage increase needed before moving the stop-loss up
