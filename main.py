@@ -135,15 +135,23 @@ class TrailingStopTrader:
                 print(f"ERROR: No {base_currency} balance available to protect")
                 return None
 
-            # Use stop price as both trigger and limit (small buffer for execution)
-            limit_price = str(stop_price * 0.995)  # 0.5% below stop for safety
-            stop_price_str = str(stop_price)
+            # Round prices to the product's quote_increment
+            # Default to 0.01 if not yet fetched (2 decimal places)
+            increment = self.quote_increment if self.quote_increment else 0.01
+
+            # Round to nearest increment
+            stop_price_rounded = round(stop_price / increment) * increment
+            limit_price_rounded = round((stop_price * 0.995) / increment) * increment
+
+            # Convert to strings for API
+            limit_price = str(limit_price_rounded)
+            stop_price_str = str(stop_price_rounded)
             base_size = str(balance)
 
             if self.dry_run:
                 print(f"\n[DRY RUN] Would place {order_type} stop-loss order:")
-                print(f"  Stop Price: ${stop_price:.4f}")
-                print(f"  Limit Price: ${float(limit_price):.4f}")
+                print(f"  Stop Price: ${stop_price_rounded:.2f}")
+                print(f"  Limit Price: ${limit_price_rounded:.2f}")
                 print(f"  Size: {base_size} {self.product_id.split('-')[0]}")
                 return f"dry_run_{order_type}_{int(time.time())}"
 
