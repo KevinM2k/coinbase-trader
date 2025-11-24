@@ -100,7 +100,12 @@ source venv/bin/activate
 
 ### Run the Bot
 ```bash
-python trader.py
+python main.py
+```
+
+You can also specify a custom config file:
+```bash
+python main.py --config config.test.yaml
 ```
 
 ### Pre-Market Launch
@@ -194,9 +199,10 @@ The trading pair isn't available yet. The bot will wait and check periodically.
 
 ```
 coinbase-trader/
-├── trader.py              # Main bot script
+├── main.py                # Main bot script
 ├── config.yaml            # Your configuration (not committed)
 ├── config.yaml.example    # Example configuration
+├── config.test.yaml       # Test configuration for BTC-USD
 ├── requirements.txt       # Python dependencies
 ├── README.md             # This file
 └── .gitignore            # Excludes config.yaml and venv
