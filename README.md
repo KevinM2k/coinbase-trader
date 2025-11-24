@@ -11,6 +11,8 @@ A Python bot that monitors cryptocurrency prices on Coinbase and executes a trai
 - **Dry Run Mode**: Test the bot without executing real orders
 - **Real-Time Monitoring**: Displays current price, stops, and updates every poll
 - **Detailed Logging**: See exactly what the bot is doing at all times
+- **Automatic Balance Detection**: Protects ALL your available coin balance
+- **No Direct Selling**: Bot only places/updates stop-loss orders, Coinbase executes the actual sells
 
 ## How It Works
 
@@ -65,7 +67,11 @@ A Python bot that monitors cryptocurrency prices on Coinbase and executes a trai
 Get your Coinbase API keys from [Coinbase Developer Portal](https://portal.cdp.coinbase.com/):
 - Create a new API key
 - Copy the **key name** and **private key**
-- Ensure it has trading permissions
+- **Required permissions**: 
+  - ✅ View account balances
+  - ✅ Create and cancel orders (for stop-loss orders)
+  - ❌ NOT needed: Transfer, withdraw, or direct market sells
+- The bot only places stop-loss orders; Coinbase executes the actual sells
 
 ### Trading Parameters
 
@@ -128,14 +134,25 @@ If you run the bot before a trading pair is available (e.g., before 2pm launch):
 ### How Stop-Loss Orders Work
 
 **The bot places REAL stop-loss orders on Coinbase:**
-- **Emergency Stop**: Placed once at startup, never changes
-- **Trailing Stop**: Updated as price rises to lock in profits
+- **Emergency Stop**: Placed once at startup, never changes (e.g., 20% below opening)
+- **Trailing Stop**: Updated as price rises to lock in profits (e.g., 15% below current)
+
+**Important: What the bot does vs. what Coinbase does:**
+- ✅ **Bot**: Places and updates stop-loss orders (order management only)
+- ✅ **Coinbase**: Executes the actual sell when stop price is hit
+- ✅ **Bot never directly buys or sells** - it only manages stop orders
+
+**Automatic Balance Protection:**
+- Bot automatically detects your full available balance
+- Places stop orders for ALL your coins
+- Example: You have 5,000 MON → All 5,000 MON protected with stops
 
 **Key Benefits:**
 - ✓ Orders are visible in Coinbase UI
 - ✓ Orders execute even if bot crashes or internet drops
 - ✓ No need to keep bot running 24/7 for protection
 - ✓ Can manually manage orders in Coinbase if needed
+- ✓ Bot only needs "trade" permission, not "transfer" or "withdraw"
 
 **When price increases by your threshold (e.g., 3%):**
 1. Bot cancels old trailing stop order
