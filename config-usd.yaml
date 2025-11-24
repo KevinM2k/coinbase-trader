@@ -1,0 +1,33 @@
+# Coinbase Pro API Credentials
+# IMPORTANT: Copy this file to config.yaml and add your real credentials
+# DO NOT commit config.yaml to version control
+api:
+  # Your Coinbase API key name
+  key_name: "organizations/89ab4ec0-ee22-4a84-868c-0311c5ab23f7/apiKeys/4647923d-035d-4c68-b6f3-358f488c131d"
+  # Your Coinbase API private key
+  private_key: "-----BEGIN EC PRIVATE KEY-----\nMHcCAQEEIONIlfyMjhjt3hIzM2t70t4fVA1ewXIzd2DkfYy/Qy6yoAoGCCqGSM49\nAwEHoUQDQgAE+o76ZMABrsmXsxkF6h8C/SLVA9ukQl4v5pXTU02H67GrDRdyA3Bd\nDZq3bpvepfSflvQLENZVMe3KGKOXSR9lOA==\n-----END EC PRIVATE KEY-----\n"
+
+# Trading Configuration
+trading:
+  # The trading pair to monitor (e.g., MON-USD, BTC-USD)
+  product_id: "MON-USD"
+  dry_run: false
+
+  # How often to poll the price (in seconds)
+  poll_interval: 5
+
+  # Trailing stop-loss configuration
+  trailing_stop:
+
+    # Percentage increase needed before moving the stop-loss up
+    # Example: 5.0 means the price must go up 5% before adjusting the stop
+    threshold_percentage: 3.0
+
+    # How much below the current price should the trailing stop be
+    # Example: 3.0 means keep the stop 3% below the current price
+    trail_percentage: 15.0
+
+# Logging
+logging:
+  # Enable verbose output
+  verbose: true

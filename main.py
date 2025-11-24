@@ -5,12 +5,19 @@ Places and manages stop-loss orders on Coinbase exchange
 """
 
 import argparse
+import logging
 import sys
 import time
 from datetime import datetime
 
 import yaml
 from coinbase.rest import RESTClient
+
+# Suppress noisy SDK logging during market waiting
+logging.basicConfig(level=logging.WARNING)
+logging.getLogger("coinbase.rest").setLevel(logging.CRITICAL)
+logging.getLogger("coinbase").setLevel(logging.CRITICAL)
+logging.getLogger("coinbase.RESTClient").setLevel(logging.CRITICAL)
 
 
 class TrailingStopTrader:
@@ -36,6 +43,7 @@ class TrailingStopTrader:
         self.initial_price = None
         self.trailing_order_id = None
         self.quote_increment = None  # Will be fetched from product info
+        self.base_increment = None  # Will be fetched from product info
 
         print("=" * 80)
         print("COINBASE TRAILING STOP-LOSS TRADER")
@@ -91,9 +99,17 @@ class TrailingStopTrader:
                 self.quote_increment = float(response.quote_increment)
                 print(f"✓ Detected price increment: ${self.quote_increment}")
 
+            # Get base_increment if not already fetched
+            if self.base_increment is None and hasattr(response, "base_increment"):
+                self.base_increment = float(response.base_increment)
+                print(f"✓ Detected size increment: {self.base_increment}")
+
             return price
         except Exception as e:
-            print(f"ERROR: Failed to get price: {e}")
+            # Silently return None for product not found errors
+            error_msg = str(e)
+            if "NOT_FOUND" not in error_msg and "not supported" not in error_msg:
+                print(f"ERROR: Failed to get price: {e}")
             return None
 
     def get_account_balance(self):
@@ -133,21 +149,41 @@ class TrailingStopTrader:
 
             if balance <= 0:
                 base_currency = self.product_id.split("-")[0]
-                print(f"ERROR: No {base_currency} balance available to protect")
+                if not self.dry_run:
+                    print(f"⚠ No {base_currency} balance available yet")
                 return None
 
             # Round prices to the product's quote_increment
-            # Default to 0.01 if not yet fetched (2 decimal places)
-            increment = self.quote_increment if self.quote_increment else 0.01
+            # Default to 0.00001 if not yet fetched (5 decimal places for MON)
+            increment = self.quote_increment if self.quote_increment else 0.00001
 
-            # Round to nearest increment
-            stop_price_rounded = round(stop_price / increment) * increment
-            limit_price_rounded = round((stop_price * 0.995) / increment) * increment
+            # Round to nearest increment - use simple math to avoid Decimal issues
+            # Round down to nearest increment
+            stop_price_rounded = (int(stop_price / increment)) * increment
+            limit_price_calc = stop_price * 0.995
+            limit_price_rounded = (int(limit_price_calc / increment)) * increment
 
-            # Convert to strings for API
-            limit_price = str(limit_price_rounded)
-            stop_price_str = str(stop_price_rounded)
-            base_size = str(balance)
+            # Convert to strings with proper decimal places (5 for MON)
+            decimal_places = (
+                5 if increment == 0.00001 else (2 if increment == 0.01 else 4)
+            )
+            limit_price = f"{limit_price_rounded:.{decimal_places}f}"
+            stop_price_str = f"{stop_price_rounded:.{decimal_places}f}"
+
+            # Round base_size to the product's base_increment
+            base_inc = self.base_increment if self.base_increment else 1.0
+            balance_rounded = (int(balance / base_inc)) * base_inc
+
+            # Format base_size with appropriate decimal places
+            if base_inc >= 1.0:
+                base_size = str(int(balance_rounded))
+            else:
+                base_decimals = (
+                    len(str(base_inc).rstrip("0").split(".")[-1])
+                    if "." in str(base_inc)
+                    else 0
+                )
+                base_size = f"{balance_rounded:.{base_decimals}f}"
 
             if self.dry_run:
                 print(f"\n[DRY RUN] Would place {order_type} stop-loss order:")
@@ -185,11 +221,22 @@ class TrailingStopTrader:
             return None
 
         except Exception as e:
-            print(f"ERROR: Failed to place stop-loss order: {e}")
-            import traceback
+            error_msg = str(e)
+            if (
+                "account is not available" in error_msg
+                or "account not found" in error_msg
+            ):
+                # Account doesn't exist yet (no MON balance)
+                return None
+            elif "Invalid product_id" in error_msg or "INVALID_ARGUMENT" in error_msg:
+                # Product exists but trading not enabled yet
+                return None
+            else:
+                print(f"ERROR: Failed to place stop-loss order: {e}")
+                import traceback
 
-            traceback.print_exc()
-            return None
+                traceback.print_exc()
+                return None
 
     def update_trailing_stop(self, current_price):
         """Update the trailing stop-loss order based on price movement"""
@@ -254,10 +301,6 @@ class TrailingStopTrader:
                         "⚠ Your position is NOT protected! Check Coinbase UI immediately!"
                     )
 
-        # Track highest price
-        if current_price > self.highest_price_since_last_update:
-            self.highest_price_since_last_update = current_price
-
     def format_timestamp(self):
         """Get formatted timestamp"""
         return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -281,6 +324,14 @@ class TrailingStopTrader:
                 else:
                     self.quote_increment = 0.01  # Default to 2 decimals
                     print(f"⚠ Could not detect price increment, defaulting to $0.01")
+
+                # Get base_increment for size precision
+                if hasattr(response, "base_increment"):
+                    self.base_increment = float(response.base_increment)
+                    print(f"✓ Detected size increment: {self.base_increment}")
+                else:
+                    self.base_increment = 1.0  # Default to whole numbers
+                    print(f"⚠ Could not detect size increment, defaulting to 1")
 
                 # If we got a price, the market is live!
                 # Calculate trailing stop based on opening price
@@ -320,33 +371,69 @@ class TrailingStopTrader:
 
             except Exception as e:
                 # Market not available yet, keep waiting
-                print(
-                    f"[{self.format_timestamp()}] {self.product_id} not available yet, waiting..."
-                )
+                error_msg = str(e)
+                if "NOT_FOUND" in error_msg or "not supported" in error_msg:
+                    print(
+                        f"[{self.format_timestamp()}] {self.product_id} not listed yet, waiting..."
+                    )
+                elif (
+                    "INVALID_ARGUMENT" in error_msg or "Invalid product_id" in error_msg
+                ):
+                    print(
+                        f"[{self.format_timestamp()}] {self.product_id} not tradeable yet, waiting..."
+                    )
+                else:
+                    print(
+                        f"[{self.format_timestamp()}] {self.product_id} not available yet, waiting... ({type(e).__name__})"
+                    )
                 time.sleep(self.poll_interval)
 
     def run(self):
         """Main trading loop"""
         print(f"[{self.format_timestamp()}] Starting trader...\n")
 
-        # Wait for market to open and get user approval
-        initial_price = self.wait_for_market()
-        self.initial_price = initial_price
-        self.highest_price_since_last_update = initial_price
+        try:
+            # Wait for market to open and get user approval
+            initial_price = self.wait_for_market()
+            self.initial_price = initial_price
+            self.highest_price_since_last_update = initial_price
+        except KeyboardInterrupt:
+            print("\n\n⚠️  Bot stopped by user during market wait")
+            print("No orders were placed. Exiting safely.\n")
+            sys.exit(0)
 
         # Place initial trailing stop order
         print("\n" + "=" * 80)
         print("PLACING TRAILING STOP-LOSS ORDER ON COINBASE")
         print("=" * 80)
 
-        print(f"\nPlacing Trailing Stop-Loss at ${self.current_stop:.4f}...")
-        self.trailing_order_id = self.place_stop_loss_order(
-            self.current_stop, "trailing"
-        )
+        # Keep trying until we can place the order (account might not be ready yet)
+        while True:
+            # Get current price and recalculate stop in case price has moved
+            current_price = self.get_current_price()
+            if current_price:
+                self.initial_price = current_price
+                self.current_stop = current_price * (1 - self.trail_pct / 100)
+                self.highest_price_since_last_update = current_price
 
-        if not self.trailing_order_id:
-            print("\nERROR: Failed to place trailing stop! Exiting for safety.")
-            sys.exit(1)
+                print(f"\nCurrent Price: ${current_price:.5f}")
+                print(
+                    f"Placing Trailing Stop-Loss at ${self.current_stop:.5f} ({self.trail_pct}% below)..."
+                )
+            else:
+                print(f"\nPlacing Trailing Stop-Loss at ${self.current_stop:.5f}...")
+
+            self.trailing_order_id = self.place_stop_loss_order(
+                self.current_stop, "trailing"
+            )
+
+            if self.trailing_order_id:
+                break
+            else:
+                print(
+                    f"⚠ Waiting for {self.product_id} trading to be enabled... (checking every {self.poll_interval}s)"
+                )
+                time.sleep(self.poll_interval)
 
         print("\n" + "=" * 80)
         print("✓ TRAILING STOP-LOSS ORDER ACTIVE ON COINBASE")
@@ -372,6 +459,13 @@ class TrailingStopTrader:
                 price_change = current_price - self.initial_price
                 price_change_pct = price_change / self.initial_price * 100
 
+                # Calculate next update trigger price
+                next_update_price = self.highest_price_since_last_update * (
+                    1 + self.threshold_pct / 100
+                )
+                price_to_next_update = next_update_price - current_price
+                pct_to_next_update = (price_to_next_update / current_price) * 100
+
                 # Print current status
                 print(f"[{self.format_timestamp()}] Poll #{iteration}")
                 print(
@@ -383,6 +477,9 @@ class TrailingStopTrader:
                 )
                 print(
                     f"  Highest Price Since Last Update: ${self.highest_price_since_last_update:.4f}"
+                )
+                print(
+                    f"  Next Update At: ${next_update_price:.5f} ({pct_to_next_update:+.2f}% from here)"
                 )
 
                 # Check if stops were triggered (orders would be filled/canceled)
