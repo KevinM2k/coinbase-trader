@@ -5,7 +5,6 @@ A Python bot that monitors cryptocurrency prices on Coinbase and executes a trai
 ## Features
 
 - **Trailing Stop-Loss**: Automatically follows price increases and locks in profits
-- **Emergency Stop-Loss**: Hard floor protection - sells immediately if price crashes
 - **Pre-Market Waiting**: Polls for new trading pairs before they go live
 - **User Approval**: Asks for confirmation before starting to trade
 - **Dry Run Mode**: Test the bot without executing real orders
@@ -13,20 +12,19 @@ A Python bot that monitors cryptocurrency prices on Coinbase and executes a trai
 - **Detailed Logging**: See exactly what the bot is doing at all times
 - **Automatic Balance Detection**: Protects ALL your available coin balance
 - **No Direct Selling**: Bot only places/updates stop-loss orders, Coinbase executes the actual sells
+- **Dynamic Price Precision**: Automatically detects and rounds to the correct decimal places for each trading pair
 
 ## How It Works
 
-1. **Emergency Stop**: Set an absolute minimum price. If the coin drops to this level, sell everything immediately.
+1. **Trailing Stop**: Follows the price upward. When the price increases by your threshold percentage (e.g., 3%), the stop-loss moves up to stay a certain percentage (e.g., 15%) below the current price.
 
-2. **Trailing Stop**: Follows the price upward. When the price increases by your threshold percentage (e.g., 5%), the stop-loss moves up to stay a certain percentage (e.g., 5%) below the current price.
-
-3. **Example**:
-   - You buy at $0.025
-   - Initial trailing stop: $0.022 (12% below entry)
-   - Emergency stop: $0.020 (20% below entry)
-   - Price rises to $0.030 (+20%) → Trailing stop moves to $0.0285
-   - Price drops to $0.0285 → Bot sells and locks in your profit
-   - If price ever crashes to $0.020 → Bot sells immediately (emergency)
+2. **Example**:
+   - MON opens at $0.0301
+   - Initial trailing stop: $0.025585 (15% below opening)
+   - Price rises to $0.031003 (+3%) → Trailing stop moves to $0.0263526 (15% below $0.031003)
+   - Price continues to $0.035 (+16.3%) → Trailing stop moves to $0.02975 (15% below $0.035)
+   - Price drops to $0.02975 → Coinbase executes sell and locks in your profit
+   - Maximum possible loss: 15% from the highest price reached
 
 ## Installation
 
@@ -81,30 +79,28 @@ trading:
   product_id: "MON-USDC"
   poll_interval: 5  # Check price every 5 seconds
   
-  emergency_stop_percentage: 20.0  # Emergency stop is 20% below opening price
-  
   trailing_stop:
     threshold_percentage: 3.0  # Price must increase 3% to update stop
     trail_percentage: 15.0  # Keep stop 15% below current price
 ```
 
-**Note:** Both stops are auto-calculated from opening price:
-- Emergency stop: `opening_price * (1 - emergency_stop_percentage / 100)`
+**Note:** The trailing stop is auto-calculated from opening price:
 - Initial trailing stop: `opening_price * (1 - trail_percentage / 100)`
 
 ### Example Configuration
 
-If MON opens at $0.035:
-- **Emergency Stop**: Auto-calculated at $0.028 (20% below $0.035)
-- **Initial Trailing Stop**: Auto-calculated at $0.02975 (15% below $0.035)
-- **Threshold**: 3% (updates stop when price gains 3%)
+If MON opens at $0.0301 (current price):
+- **Initial Trailing Stop**: Auto-calculated at $0.025585 (15% below $0.0301)
+- **Threshold**: 3% (updates stop when price gains 3% from highest since last update)
 - **Trail**: 15% (keeps stop 15% below current price)
 
+If MON opens at $0.035:
+- **Initial Trailing Stop**: Auto-calculated at $0.02975 (15% below $0.035)
+
 If MON opens at $0.019:
-- **Emergency Stop**: Auto-calculated at $0.0152 (20% below $0.019)
 - **Initial Trailing Stop**: Auto-calculated at $0.01615 (15% below $0.019)
 
-**Note:** Both stops automatically adjust to the opening price - works for any launch price!
+**Note:** The trailing stop automatically adjusts to the opening price - works for any launch price!
 
 ## Usage
 
@@ -134,8 +130,7 @@ If you run the bot before a trading pair is available (e.g., before 2pm launch):
 ### How Stop-Loss Orders Work
 
 **The bot places REAL stop-loss orders on Coinbase:**
-- **Emergency Stop**: Placed once at startup, never changes (e.g., 20% below opening)
-- **Trailing Stop**: Updated as price rises to lock in profits (e.g., 15% below current)
+- **Trailing Stop**: Single stop-limit order that updates as price rises to lock in profits (e.g., 15% below current high)
 
 **Important: What the bot does vs. what Coinbase does:**
 - ✅ **Bot**: Places and updates stop-loss orders (order management only)
@@ -144,40 +139,49 @@ If you run the bot before a trading pair is available (e.g., before 2pm launch):
 
 **Automatic Balance Protection:**
 - Bot automatically detects your full available balance
-- Places stop orders for ALL your coins
-- Example: You have 5,000 MON → All 5,000 MON protected with stops
+- Places stop order for ALL your coins
+- Example: You have 5,000 MON → All 5,000 MON protected with trailing stop
 
 **Key Benefits:**
-- ✓ Orders are visible in Coinbase UI
-- ✓ Orders execute even if bot crashes or internet drops
-- ✓ No need to keep bot running 24/7 for protection
-- ✓ Can manually manage orders in Coinbase if needed
+- ✓ Order is visible in Coinbase UI
+- ✓ Order executes even if bot crashes or internet drops
+- ✓ No need to keep bot running 24/7 for protection (order stays active)
+- ✓ Can manually manage order in Coinbase if needed
 - ✓ Bot only needs "trade" permission, not "transfer" or "withdraw"
 
 **When price increases by your threshold (e.g., 3%):**
 1. Bot cancels old trailing stop order
-2. Bot places new trailing stop order at higher price
-3. You're protected with updated stops on Coinbase
+2. Waits 2 seconds for balance to be released
+3. Places new trailing stop order at higher price (with retry logic)
+4. You're protected with updated stop on Coinbase
+
+**Why only one stop order?**
+- Coinbase places a hold on your balance when a stop order is active
+- You cannot have multiple stop orders on the same coin balance
+- Single trailing stop provides protection while allowing profit locking
 
 ### During Trading
 
 The bot displays:
 ```
 [2025-11-24 14:05:23] Poll #42
-  Current Price: $0.0285 (+14.00%)
-  Trailing Stop: $0.0271
-  Emergency Stop: $0.0200
-  Distance to Trailing Stop: $0.0014 (4.91%)
-  Highest Price Since Last Update: $0.0285
+  Current Price: $0.0320 (+6.31%)
+  Trailing Stop: $0.0272
+  Distance to Trailing Stop: $0.0048 (15.00%)
+  Highest Price Since Last Update: $0.0320
 ```
 
 When the trailing stop updates, you'll see:
 ```
->>> STOP-LOSS UPDATE TRIGGERED! Price increased by 5.12%
->>> Old Stop: $0.0271 -> New Stop: $0.0285
->>> Stop raised by $0.0014
+>>> STOP-LOSS UPDATE TRIGGERED! Price increased by 3.12%
+>>> Old Stop: $0.0256 -> New Stop: $0.0272
+>>> Stop raised by $0.0016
 
-✓ New trailing stop active at $0.0285
+Canceling old trailing stop order...
+✓ Cancelled order 1234-5678-abcd
+✓ Placed trailing stop-loss order on Coinbase
+✓ Order ID: 5678-9012-efgh
+✓ New trailing stop active at $0.0272
 ```
 
 ### Stop the Bot

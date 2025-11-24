@@ -14,7 +14,7 @@ from coinbase.rest import RESTClient
 
 
 class TrailingStopTrader:
-    def __init__(self, config_path="config.yaml"):
+    def __init__(self, config_path="config.yaml", auto_start=False):
         """Initialize the trader with configuration"""
         self.config = self.load_config(config_path)
         self.client = self.setup_client()
@@ -23,6 +23,7 @@ class TrailingStopTrader:
         self.product_id = self.config["trading"]["product_id"]
         self.poll_interval = self.config["trading"]["poll_interval"]
         self.dry_run = self.config["trading"].get("dry_run", False)
+        self.auto_start = auto_start
 
         # Trailing stop parameters
         trailing = self.config["trading"]["trailing_stop"]
@@ -295,20 +296,27 @@ class TrailingStopTrader:
                 print(f"Threshold for Updates: {self.threshold_pct}%")
                 print(f"Mode: {'DRY RUN' if self.dry_run else 'LIVE TRADING'}")
                 print("=" * 80)
-                print("\n⚠️  REVIEW THE SETTINGS ABOVE CAREFULLY ⚠️\n")
 
-                # Ask for approval
-                response = input("Type 'START' to begin trading: ").strip().upper()
-
-                if response == "START":
-                    print("\n✓ Starting trading bot...\n")
+                # Ask for approval or auto-start
+                if self.auto_start:
+                    print("\n✓ Auto-start enabled, beginning trading immediately...\n")
                     self.current_stop = (
                         calculated_trailing  # Set the initial trailing stop
                     )
                     return price
                 else:
-                    print("\nTrading cancelled by user.")
-                    sys.exit(0)
+                    print("\n⚠️  REVIEW THE SETTINGS ABOVE CAREFULLY ⚠️\n")
+                    response = input("Type 'START' to begin trading: ").strip().upper()
+
+                    if response == "START":
+                        print("\n✓ Starting trading bot...\n")
+                        self.current_stop = (
+                            calculated_trailing  # Set the initial trailing stop
+                        )
+                        return price
+                    else:
+                        print("\nTrading cancelled by user.")
+                        sys.exit(0)
 
             except Exception as e:
                 # Market not available yet, keep waiting
@@ -411,9 +419,14 @@ def main():
         default="config.yaml",
         help="Path to configuration file (default: config.yaml)",
     )
+    parser.add_argument(
+        "--auto-start",
+        action="store_true",
+        help="Skip manual START confirmation and begin trading automatically when market opens",
+    )
     args = parser.parse_args()
 
-    trader = TrailingStopTrader(config_path=args.config)
+    trader = TrailingStopTrader(config_path=args.config, auto_start=args.auto_start)
     trader.run()
 
 
