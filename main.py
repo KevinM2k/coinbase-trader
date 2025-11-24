@@ -245,8 +245,16 @@ class TrailingStopTrader:
 
         while True:
             try:
-                ticker = self.client.get_product(self.product_id)
-                price = float(ticker["price"])
+                response = self.client.get_product(self.product_id)
+                price = float(response.price)
+
+                # Get quote_increment for price precision
+                if hasattr(response, "quote_increment"):
+                    self.quote_increment = float(response.quote_increment)
+                    print(f"✓ Detected price increment: ${self.quote_increment}")
+                else:
+                    self.quote_increment = 0.01  # Default to 2 decimals
+                    print(f"⚠ Could not detect price increment, defaulting to $0.01")
 
                 # If we got a price, the market is live!
                 # Calculate trailing stop based on opening price
