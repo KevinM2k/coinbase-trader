@@ -8,6 +8,7 @@ import argparse
 import sys
 import time
 from datetime import datetime
+import math
 
 import yaml
 from coinbase.rest import RESTClient
@@ -16,6 +17,8 @@ from coinbase.rest import RESTClient
 class TrailingStopTrader:
     def __init__(self, config_path="config.yaml", auto_start=False):
         """Initialize the trader with configuration"""
+        self.config_path = config_path
+        self.last_config_mtime = 0
         self.config = self.load_config(config_path)
         self.client = self.setup_client()
 
@@ -36,6 +39,8 @@ class TrailingStopTrader:
         self.initial_price = None
         self.trailing_order_id = None
         self.quote_increment = None  # Will be fetched from product info
+        self.base_increment = None   # Will be fetched from product info
+        self.base_min_size = None    # Will be fetched from product info
 
         print("=" * 80)
         print("COINBASE TRAILING STOP-LOSS TRADER")
@@ -51,20 +56,26 @@ class TrailingStopTrader:
         print("=" * 80)
         print()
 
-    def load_config(self, config_path):
+    def load_config(self, config_path, exit_on_error=True):
         """Load configuration from YAML file"""
         try:
+            import os
+            self.last_config_mtime = os.path.getmtime(config_path)
             with open(config_path, "r") as f:
                 return yaml.safe_load(f)
         except FileNotFoundError:
             print(f"ERROR: Config file '{config_path}' not found!")
-            print(
-                "Please copy config.yaml.example to config.yaml and add your credentials."
-            )
-            sys.exit(1)
+            if exit_on_error:
+                print(
+                    "Please copy config.yaml.example to config.yaml and add your credentials."
+                )
+                sys.exit(1)
+            raise
         except yaml.YAMLError as e:
             print(f"ERROR: Invalid YAML in config file: {e}")
-            sys.exit(1)
+            if exit_on_error:
+                sys.exit(1)
+            raise
 
     def setup_client(self):
         """Setup Coinbase REST client"""
@@ -90,6 +101,16 @@ class TrailingStopTrader:
             if self.quote_increment is None and hasattr(response, "quote_increment"):
                 self.quote_increment = float(response.quote_increment)
                 print(f"✓ Detected price increment: ${self.quote_increment}")
+
+            # Get base_increment if not already fetched
+            if self.base_increment is None and hasattr(response, "base_increment"):
+                self.base_increment = float(response.base_increment)
+                print(f"✓ Detected base increment: {self.base_increment}")
+
+            # Get base_min_size if not already fetched
+            if self.base_min_size is None and hasattr(response, "base_min_size"):
+                self.base_min_size = float(response.base_min_size)
+                print(f"✓ Detected base min size: {self.base_min_size}")
 
             return price
         except Exception as e:
@@ -152,8 +173,16 @@ class TrailingStopTrader:
             stop_price_str = f"{stop_price_rounded:.{decimal_places}f}"
 
             # Round base_size to the product's base_increment
-            base_inc = getattr(self, "base_increment", None) or 1.0
-            balance_rounded = round(balance / base_inc) * base_inc
+            base_inc = self.base_increment if self.base_increment else 1.0
+            base_min = self.base_min_size if self.base_min_size else base_inc
+            
+            # Check if we have enough balance for minimum order
+            if balance < base_min:
+                print(f"ERROR: Balance ({balance}) is less than minimum order size ({base_min})")
+                return None
+
+            # Use floor to ensure we don't exceed available balance
+            balance_rounded = math.floor(balance / base_inc) * base_inc
 
             # Format base_size with appropriate decimal places
             if base_inc >= 1.0:
@@ -165,6 +194,10 @@ class TrailingStopTrader:
                     else 0
                 )
                 base_size = f"{balance_rounded:.{base_decimals}f}"
+
+            if float(base_size) <= 0:
+                print(f"ERROR: Calculated base size is 0. Balance: {balance}, Increment: {base_inc}")
+                return None
 
             if self.dry_run:
                 print(f"\n[DRY RUN] Would place {order_type} stop-loss order:")
@@ -295,6 +328,22 @@ class TrailingStopTrader:
                     self.quote_increment = 0.01  # Default to 2 decimals
                     print(f"⚠ Could not detect price increment, defaulting to $0.01")
 
+                # Get base_increment for size precision
+                if hasattr(response, "base_increment"):
+                    self.base_increment = float(response.base_increment)
+                    print(f"✓ Detected base increment: {self.base_increment}")
+                else:
+                    self.base_increment = 1.0
+                    print(f"⚠ Could not detect base increment, defaulting to 1.0")
+
+                # Get base_min_size
+                if hasattr(response, "base_min_size"):
+                    self.base_min_size = float(response.base_min_size)
+                    print(f"✓ Detected base min size: {self.base_min_size}")
+                else:
+                    self.base_min_size = self.base_increment
+                    print(f"⚠ Could not detect base min size, defaulting to {self.base_min_size}")
+
                 # If we got a price, the market is live!
                 # Calculate trailing stop based on opening price
                 calculated_trailing = price * (1 - self.trail_pct / 100)
@@ -338,6 +387,31 @@ class TrailingStopTrader:
                 )
                 time.sleep(self.poll_interval)
 
+    def check_config_reload(self):
+        """Check if config file has changed and reload it"""
+        try:
+            import os
+            current_mtime = os.path.getmtime(self.config_path)
+            if current_mtime > self.last_config_mtime:
+                print(f"\n[{self.format_timestamp()}] Config change detected, reloading...")
+                
+                # Load new config (will raise exception if invalid, caught below)
+                new_config = self.load_config(self.config_path, exit_on_error=False)
+                
+                # Update trading parameters
+                self.config = new_config
+                self.poll_interval = self.config["trading"]["poll_interval"]
+                
+                trailing = self.config["trading"]["trailing_stop"]
+                self.threshold_pct = float(trailing["threshold_percentage"])
+                self.trail_pct = float(trailing["trail_percentage"])
+                
+                print(f"✓ Config reloaded: Threshold={self.threshold_pct}%, Trail={self.trail_pct}%, Poll={self.poll_interval}s\n")
+                
+        except Exception as e:
+            print(f"⚠ Failed to reload config: {e}")
+            print("Keeping previous configuration.")
+
     def run(self):
         """Main trading loop"""
         print(f"[{self.format_timestamp()}] Starting trader...\n")
@@ -371,6 +445,7 @@ class TrailingStopTrader:
         try:
             iteration = 0
             while True:
+                self.check_config_reload()
                 iteration += 1
                 current_price = self.get_current_price()
 
